@@ -4,13 +4,12 @@ Companion content for the "Quick tip for Streamlit caching in CoCo" email. The s
 
 ## Fix the app with CoCo
 
-Open `before/streamlit_app.py` in Snowsight (or Cortex Code), select the whole file, and give CoCo this prompt:
+Open `before/streamlit_app.py` in Cortex Code (or Snowsight), select the whole file, and give CoCo this prompt:
 
-> Refactor this Streamlit app so filter clicks don't rerun heavy warehouse queries:
-> 1. Wrap `load_filtered` and `load_mau` in `@st.cache_data(ttl="10m")`, and wrap `ensure_events_table` in `@st.cache_resource`.
+> Refactor this Streamlit app so filter clicks don't redo expensive work:
+> 1. Wrap `load_events`, `load_filtered`, and `load_mau` in `@st.cache_data`.
 > 2. Turn `filtered_section` into an `@st.fragment` so changing a filter reruns only that section.
-> 3. Handle edge cases: warn when a filter is empty, show a message instead of `$nan` when 0 rows come back, and keep NULL regions visible as "Unknown" instead of dropping them.
-> 4. Rewrite `load_mau` as a Snowpark aggregation (`date_trunc` by month, `count_distinct` on `USER_ID`) so only the monthly totals leave the warehouse.
+> 3. Handle edge cases: warn when a filter is empty, show a message instead of `$nan` when 0 rows come back, and keep rows with a missing region visible as "Unknown" instead of dropping them.
 
 CoCo shows the changes as an inline diff. Review the diff and accept it, and the result should match `after/streamlit_app.py`. Run `diff before/streamlit_app.py after/streamlit_app.py` to compare.
 
@@ -54,16 +53,16 @@ If you only want the caching fix, the one-line prompt from the email is enough:
 
 ## Supporting stat
 
-From a headless test run on synthetic data (one test, not a benchmark):
+From a headless test of the demo apps (CSV data, one test, not a benchmark):
 
 | | Before | After |
 |---|---|---|
-| Avg rerun | 1.78s | 0.18s |
-| Repeat filter pick | ~1.6 to 2.1s | ~0.01s |
+| Avg rerun | ~0.18s | ~0.01s |
 
-Suggested line: "Repeat filter clicks went from ~1.8s to ~0.01s."
+Against a warehouse the gap is larger, because each uncached rerun is a round trip to Snowflake. In an earlier Snowflake-backed version of this demo, reruns averaged 1.78s before and 0.18s after, and repeat filter picks took about 0.01s.
 
 ## Notes
 
-- The snippets drop the tuple sorting and empty-filter guards from the full app. Link to the repo for the complete version.
+- The email snippets show a Snowflake query, which matches the email's audience. The demo repo reads a CSV instead so it runs anywhere without credentials; the caching and fragment pattern is the same.
+- The snippets drop the tuple sorting and empty-filter guards from the full app. Full code: https://github.com/sfc-gh-cnantasenamat/streamlit-caching-fragments-demo
 - The email says "Highlight your query code" before prompting CoCo. Snippet 1 is the natural code to highlight in that screenshot.

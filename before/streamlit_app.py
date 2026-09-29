@@ -1,70 +1,39 @@
-"""BEFORE: a first-draft app with the three problems from the email.
+"""BEFORE: a first-draft app with the problems from the email.
 
   1. Runaway reruns: no caching and no fragment, so every widget click
-     reruns the whole script and every warehouse query.
-  2. Edge cases: empty filters show $nan, and NULL regions are silently
-     dropped from the totals.
-  3. SQL layer: monthly active users is computed in pandas after pulling
-     every row out of the warehouse.
+     rereads the CSV and reruns the whole script.
+  2. Edge cases: empty filters show $nan, and rows with no region are
+     silently dropped from the totals.
 """
 
-import json
-import os
 import time
+from pathlib import Path
 
+import pandas as pd
 import streamlit as st
 
 st.set_page_config(page_title="User Activity (before)", layout="wide")
 
-# Locally, set SNOWFLAKE_DEFAULT_CONNECTION_NAME to pick a connections.toml entry.
-conn = st.connection("snowflake")
+# 200k synthetic events; about 5% have no REGION.
+DATA_PATH = Path(__file__).parent.parent / "data" / "user_events.csv"
 
-EVENTS_TABLE = "USER_EVENTS_DEMO"
-
-# Synthetic event log, materialized once as a temp table so every query
-# (pandas and Snowpark) reads the same rows.
-EVENTS_SQL = f"""
-CREATE TEMPORARY TABLE IF NOT EXISTS {EVENTS_TABLE} AS
-SELECT
-    DATEADD('day', -UNIFORM(0, 364, RANDOM()), CURRENT_DATE())      AS EVENT_DATE,
-    'user_' || UNIFORM(1, 2000, RANDOM())                             AS USER_ID,
-    CASE WHEN UNIFORM(1, 20, RANDOM()) = 1 THEN NULL
-         ELSE ARRAY_CONSTRUCT('AMER','EMEA','APJ')[UNIFORM(0, 2, RANDOM())]::STRING
-    END                                                               AS REGION,
-    ARRAY_CONSTRUCT('web','mobile','api')[UNIFORM(0, 2, RANDOM())]::STRING AS CHANNEL,
-    ROUND(UNIFORM(1, 500, RANDOM()) * 1.0, 2)                         AS REVENUE
-FROM TABLE(GENERATOR(ROWCOUNT => 200000))
-"""
+def load_events() -> pd.DataFrame:
+    return pd.read_csv(DATA_PATH, parse_dates=["EVENT_DATE"])
 
 
-def ensure_events_table() -> None:
-    """Create the demo table."""
-    # Turn off Snowflake's result cache so only Streamlit caching speeds up reruns.
-    conn.session().sql("ALTER SESSION SET USE_CACHED_RESULT = FALSE").collect()
-    conn.session().sql(EVENTS_SQL).collect()
+def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]) -> pd.DataFrame:
+    df = load_events()
+    return df[df["REGION"].isin(regions) & df["CHANNEL"].isin(channels)]
 
 
-def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]):
-    sql = f"""
-        SELECT EVENT_DATE, USER_ID, REGION, CHANNEL, REVENUE
-        FROM {EVENTS_TABLE}
-        WHERE ARRAY_CONTAINS(REGION::VARIANT, PARSE_JSON(?))
-          AND ARRAY_CONTAINS(CHANNEL::VARIANT, PARSE_JSON(?))
-    """
-    return conn.session().sql(
-        sql, params=[json.dumps(list(regions)), json.dumps(list(channels))]
-    ).to_pandas()
+def load_mau() -> pd.DataFrame:
+    df = load_events()
+    month = df["EVENT_DATE"].dt.to_period("M").dt.to_timestamp()
+    return (
+        df.groupby(month)["USER_ID"].nunique()
+        .rename("MAU").rename_axis("MONTH").reset_index()
+    )
 
-
-# Pulls every row into pandas, then counts distinct users per month client-side.
-def load_mau():
-    df = conn.session().table(EVENTS_TABLE).to_pandas()
-    df["MONTH"] = df["EVENT_DATE"].astype("datetime64[ns]").dt.to_period("M").dt.to_timestamp()
-    return df.groupby("MONTH", as_index=False)["USER_ID"].nunique().rename(columns={"USER_ID": "MAU"})
-
-
-run_start = time.perf_counter()
-ensure_events_table()
 
 st.title("User activity dashboard")
 st.caption("Before: no caching, no fragment, no edge-case handling.")
@@ -72,10 +41,10 @@ st.caption("Before: no caching, no fragment, no edge-case handling.")
 # Clears Streamlit's caches so the timing test can be repeated from cold.
 if st.button("Reset cache", icon=":material/restart_alt:"):
     st.cache_data.clear()
-    st.cache_resource.clear()
     st.session_state.pop("run_log", None)
     st.rerun()
 
+run_start = time.perf_counter()
 st.session_state["full_run"] = True
 
 # Inputs are shown above the chart, but the chart code runs first so a
@@ -119,10 +88,11 @@ def show_filtered_data() -> None:
 
     df = load_filtered(tuple(sorted(regions)), tuple(sorted(channels)))
 
+    revenue = df["REVENUE"]
     c1, c2, c3 = st.columns(3)
     c1.metric("Events", f"{len(df):,}")
-    c2.metric("Revenue", f"${df['REVENUE'].sum():,.0f}")
-    c3.metric("Avg revenue per event", f"${df['REVENUE'].mean():,.2f}")
+    c2.metric("Revenue", f"${revenue.sum():,.0f}")
+    c3.metric("Avg revenue per event", f"${revenue.mean():,.2f}")
 
     st.dataframe(df.head(100), hide_index=True)
 

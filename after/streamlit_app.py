@@ -1,96 +1,56 @@
-"""AFTER: the same app with the three CoCo prompts from the email applied.
+"""AFTER: the same app with the CoCo caching prompts applied.
 
-  1. Stop runaway reruns: queries cached with @st.cache_data /
-     @st.cache_resource, filter section isolated in an @st.fragment.
-  2. Edge cases: empty selections, 0-row results, and NULL regions
+  1. Stop runaway reruns: data loads cached with @st.cache_data,
+     filter section isolated in an @st.fragment.
+  2. Edge cases: empty selections, 0-row results, and missing regions
      are handled explicitly.
-  3. SQL layer: monthly active users aggregated in Snowpark and fed
-     straight into st.bar_chart.
 """
 
-import json
-import os
 import time
+from pathlib import Path
 
+import pandas as pd
 import streamlit as st
-from snowflake.snowpark import functions as F
 
 st.set_page_config(page_title="User Activity (after)", layout="wide")
 
-# Locally, set SNOWFLAKE_DEFAULT_CONNECTION_NAME to pick a connections.toml entry.
-conn = st.connection("snowflake")
-
-EVENTS_TABLE = "USER_EVENTS_DEMO"
-
-# Synthetic event log, materialized once as a temp table so every query
-# (pandas and Snowpark) reads the same rows.
-EVENTS_SQL = f"""
-CREATE TEMPORARY TABLE IF NOT EXISTS {EVENTS_TABLE} AS
-SELECT
-    DATEADD('day', -UNIFORM(0, 364, RANDOM()), CURRENT_DATE())      AS EVENT_DATE,
-    'user_' || UNIFORM(1, 2000, RANDOM())                             AS USER_ID,
-    CASE WHEN UNIFORM(1, 20, RANDOM()) = 1 THEN NULL
-         ELSE ARRAY_CONSTRUCT('AMER','EMEA','APJ')[UNIFORM(0, 2, RANDOM())]::STRING
-    END                                                               AS REGION,
-    ARRAY_CONSTRUCT('web','mobile','api')[UNIFORM(0, 2, RANDOM())]::STRING AS CHANNEL,
-    ROUND(UNIFORM(1, 500, RANDOM()) * 1.0, 2)                         AS REVENUE
-FROM TABLE(GENERATOR(ROWCOUNT => 200000))
-"""
+# 200k synthetic events; about 5% have no REGION.
+DATA_PATH = Path(__file__).parent.parent / "data" / "user_events.csv"
 
 UNKNOWN_REGION = "Unknown"
 
 
-@st.cache_resource
-def ensure_events_table() -> None:
-    """Create the demo table."""
-    # Turn off Snowflake's result cache so only Streamlit caching speeds up reruns.
-    conn.session().sql("ALTER SESSION SET USE_CACHED_RESULT = FALSE").collect()
-    conn.session().sql(EVENTS_SQL).collect()
+@st.cache_data(show_spinner="Loading events...")
+def load_events() -> pd.DataFrame:
+    return pd.read_csv(DATA_PATH, parse_dates=["EVENT_DATE"])
 
 
-@st.cache_data(ttl="10m", show_spinner="Querying warehouse...")
-def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]):
-    region_list = [r for r in regions if r != UNKNOWN_REGION]
-    include_null = UNKNOWN_REGION in regions
-    sql = f"""
-        SELECT EVENT_DATE, USER_ID,
-               COALESCE(REGION, '{UNKNOWN_REGION}') AS REGION,
-               CHANNEL, REVENUE
-        FROM {EVENTS_TABLE}
-        WHERE (ARRAY_CONTAINS(REGION::VARIANT, PARSE_JSON(?)) OR (? AND REGION IS NULL))
-          AND ARRAY_CONTAINS(CHANNEL::VARIANT, PARSE_JSON(?))
-    """
-    return conn.session().sql(
-        sql, params=[json.dumps(region_list), include_null, json.dumps(list(channels))]
-    ).to_pandas()
+@st.cache_data(show_spinner="Filtering events...")
+def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]) -> pd.DataFrame:
+    df = load_events().assign(REGION=lambda d: d["REGION"].fillna(UNKNOWN_REGION))
+    return df[df["REGION"].isin(regions) & df["CHANNEL"].isin(channels)]
 
 
-# Aggregate MAU in Snowpark so only ~12 rows leave the warehouse.
-@st.cache_data(ttl="10m", show_spinner="Aggregating monthly active users...")
-def load_mau():
-    events = conn.session().table(EVENTS_TABLE)
+@st.cache_data(show_spinner="Aggregating monthly active users...")
+def load_mau() -> pd.DataFrame:
+    df = load_events()
+    month = df["EVENT_DATE"].dt.to_period("M").dt.to_timestamp()
     return (
-        events.with_column("MONTH", F.date_trunc("month", F.col("EVENT_DATE")))
-        .group_by("MONTH")
-        .agg(F.count_distinct("USER_ID").alias("MAU"))
-        .sort("MONTH")
-        .to_pandas()
+        df.groupby(month)["USER_ID"].nunique()
+        .rename("MAU").rename_axis("MONTH").reset_index()
     )
 
 
-run_start = time.perf_counter()
-ensure_events_table()
-
 st.title("User activity dashboard")
-st.caption("After: cached queries, fragment-scoped filters, edge cases handled.")
+st.caption("After: cached data loads, fragment-scoped filters, edge cases handled.")
 
 # Clears Streamlit's caches so the timing test can be repeated from cold.
 if st.button("Reset cache", icon=":material/restart_alt:"):
     st.cache_data.clear()
-    st.cache_resource.clear()
     st.session_state.pop("run_log", None)
     st.rerun()
 
+run_start = time.perf_counter()
 st.session_state["full_run"] = True
 
 # Inputs are shown above the chart, but the chart code runs first so a
@@ -137,7 +97,7 @@ def show_filtered_data() -> None:
     )
     channels = col_b.multiselect("Channel", ["web", "mobile", "api"], default=["web"])
 
-    # Guard against empty selections before touching the warehouse.
+    # Guard against empty selections before loading anything.
     if not regions or not channels:
         st.warning("Pick at least one region and one channel.")
         return
