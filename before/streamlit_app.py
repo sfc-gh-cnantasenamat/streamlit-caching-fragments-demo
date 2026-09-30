@@ -70,7 +70,6 @@ st.session_state["full_run"] = True
 
 
 def render_chart() -> None:
-    st.subheader("Monthly active users")
     mau = load_mau()
     st.bar_chart(mau, x="MONTH", y="MAU")
 
@@ -106,6 +105,7 @@ def show_filtered_data() -> None:
     df = load_filtered(tuple(sorted(regions)), tuple(sorted(channels)))
 
     revenue = df["REVENUE"]
+    st.subheader("Data")
     c1, c2, c3 = st.columns(3)
     c1.metric("Events", f"{len(df):,}")
     c2.metric("Revenue", f"${revenue.sum():,.0f}")
