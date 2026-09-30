@@ -28,7 +28,7 @@ Each app has a **Reset cache** button and a **Run timing** panel showing the fir
 | `load_events()` | `@st.cache_data` | CSV is read once instead of on every rerun |
 | `load_filtered()` | `@st.cache_data` | Each filter combination is computed once |
 | `load_mau()` | `@st.cache_data` | Monthly active users is aggregated once |
-| `filtered_section()` | `@st.fragment` | Changing a filter reruns only that section, not the chart |
+| `filtered_section()` | `@st.fragment` | Changing a filter reruns only the Input section, not the whole script |
 
 ### Prompt 2: Defend against edge cases
 

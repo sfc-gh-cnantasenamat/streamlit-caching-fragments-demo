@@ -47,12 +47,8 @@ if st.button("Reset cache", icon=":material/restart_alt:"):
 run_start = time.perf_counter()
 st.session_state["full_run"] = True
 
-# Inputs are shown above the chart, but the chart code runs first so a
-# full run's timing (logged at the end of the filter section) includes it.
-input_area = st.container()
-chart_area = st.container()
 
-with chart_area:
+def render_chart() -> None:
     st.subheader("Monthly active users")
     mau = load_mau()
     st.bar_chart(mau, x="MONTH", y="MAU")
@@ -94,6 +90,7 @@ def show_filtered_data() -> None:
     c2.metric("Revenue", f"${revenue.sum():,.0f}")
     c3.metric("Avg revenue per event", f"${revenue.mean():,.2f}")
 
+    render_chart()
     st.dataframe(df.head(100), hide_index=True)
 
 
@@ -103,6 +100,5 @@ def filtered_section() -> None:
     render_timing(start)
 
 
-with input_area:
-    st.subheader("Input")
-    filtered_section()
+st.subheader("Input")
+filtered_section()
