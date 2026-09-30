@@ -17,8 +17,29 @@ st.set_page_config(page_title="User Activity (before)", layout="wide")
 # 200k synthetic events; about 5% have no REGION.
 DATA_PATH = Path(__file__).parent.parent / "data" / "user_events.csv"
 
+def generate_events() -> pd.DataFrame:
+    """Rebuild the same seeded dataset if the CSV is missing or unreadable."""
+    import numpy as np
+
+    rng = np.random.default_rng(42)
+    n = 200_000
+    today = pd.Timestamp("2026-09-29")
+    df = pd.DataFrame({
+        "EVENT_DATE": today - pd.to_timedelta(rng.integers(0, 365, n), unit="D"),
+        "USER_ID": ["user_%d" % i for i in rng.integers(1, 2001, n)],
+        "REGION": rng.choice(["AMER", "EMEA", "APJ"], n),
+        "CHANNEL": rng.choice(["web", "mobile", "api"], n),
+        "REVENUE": rng.integers(1, 501, n),
+    })
+    df.loc[rng.random(n) < 0.05, "REGION"] = None
+    return df
+
+
 def load_events() -> pd.DataFrame:
-    return pd.read_csv(DATA_PATH, parse_dates=["EVENT_DATE"])
+    try:
+        return pd.read_csv(DATA_PATH, parse_dates=["EVENT_DATE"])
+    except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError):
+        return generate_events()
 
 
 def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]) -> pd.DataFrame:
