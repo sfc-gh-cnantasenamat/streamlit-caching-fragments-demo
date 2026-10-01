@@ -46,6 +46,18 @@ def load_events() -> pd.DataFrame:
         return generate_events()
 
 
+# To load from Snowflake instead, replace load_events() above with this
+# (needs a [connections.snowflake] entry in .streamlit/secrets.toml):
+#
+# @st.cache_data(ttl="10m", show_spinner="Loading events...")
+# def load_events() -> pd.DataFrame:
+#     conn = st.connection("snowflake")
+#     return conn.query(
+#         "SELECT EVENT_DATE, USER_ID, REGION, CHANNEL, REVENUE FROM USER_EVENTS_DEMO",
+#         ttl=0,  # caching is handled by @st.cache_data above
+#     )
+
+
 @st.cache_data(show_spinner="Filtering events...")
 def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]) -> pd.DataFrame:
     df = load_events().assign(REGION=lambda d: d["REGION"].fillna(UNKNOWN_REGION))

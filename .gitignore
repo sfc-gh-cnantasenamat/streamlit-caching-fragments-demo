@@ -1,3 +1,6 @@
 __pycache__/
 .DS_Store
 .streamlit/secrets.toml
+EMAIL_SNIPPETS.md
+diagrams/*
+!diagrams/before_after_caching.png

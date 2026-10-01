@@ -1,6 +1,16 @@
 # Streamlit caching with CoCo: tutorial companion app
 
-Two versions of the same user-activity dashboard, built on a bundled CSV of 200k synthetic events (`data/user_events.csv`, about 5% with no region). No Snowflake credentials are needed.
+A Streamlit app is easy to build until users start clicking filters. Every click reruns the whole script from top to bottom, and every data load runs again, even when nothing about the data changed. In this demo, the table and the chart each load the data, so the uncached app reads it twice on every click.
+
+Two small changes fix this. `@st.cache_data` loads the data once and reuses it, and `@st.fragment` limits a filter click to rerunning just the filter section. In the deployed demo, reruns dropped from ~0.5s to ~0.02s.
+
+![Before and after: the same app without and with @st.cache_data and @st.fragment](diagrams/before_after_caching.png)
+
+Try both versions live: [before](https://st-before-caching.streamlit.app) and [after](https://st-after-caching.streamlit.app).
+
+## What's in this repo
+
+Two versions of the same user-activity dashboard, built on a bundled CSV of 200k synthetic events (`data/user_events.csv`, about 5% with no region). No Snowflake credentials are needed. To load from Snowflake instead, each app has a commented-out Snowflake version of `load_events()` you can swap in.
 
 - `before/` is a typical first draft: no caching, no fragment, no edge-case handling.
 - `after/` is the same file after running the CoCo prompts from the email.
