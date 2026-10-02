@@ -44,10 +44,12 @@ def snowflake_session():
     Locally and on Community Cloud this returns None, so the app reads the
     bundled CSV and needs no Snowflake credentials.
     """
+    # Container runtime: the SPCS service mounts a session token here.
+    # Errors aren't caught, so a missing Snowpark package fails loudly
+    # instead of falling back to sample data.
+    if Path("/snowflake/session/token").exists():
+        return st.connection("snowflake").session()
     try:
-        # Container runtime: the SPCS service mounts a session token here.
-        if Path("/snowflake/session/token").exists():
-            return st.connection("snowflake").session()
         # Warehouse runtime: Snowpark provides the active session.
         from snowflake.snowpark.context import get_active_session
         return get_active_session()
