@@ -107,7 +107,8 @@ def render_chart() -> None:
     if mau.empty:
         st.info("No activity data yet.")
     else:
-        st.bar_chart(mau, x="MONTH", y="MAU")
+        # Month labels give a categorical x-axis, so the bars draw full width.
+        st.bar_chart(mau.assign(MONTH=mau["MONTH"].dt.strftime("%Y-%m")), x="MONTH", y="MAU")
 
 
 def render_timing(start: float) -> None:
