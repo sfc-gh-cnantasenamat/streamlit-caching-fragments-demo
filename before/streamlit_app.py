@@ -35,22 +35,36 @@ def generate_events() -> pd.DataFrame:
     return df
 
 
+def snowflake_session():
+    """Return the app's Snowpark session in Streamlit in Snowflake, else None.
+
+    Locally and on Community Cloud this returns None, so the app reads the
+    bundled CSV and needs no Snowflake credentials.
+    """
+    try:
+        # Container runtime: the SPCS service mounts a session token here.
+        if Path("/snowflake/session/token").exists():
+            return st.connection("snowflake").session()
+        # Warehouse runtime: Snowpark provides the active session.
+        from snowflake.snowpark.context import get_active_session
+        return get_active_session()
+    except Exception:
+        return None
+
+
 def load_events() -> pd.DataFrame:
+    session = snowflake_session()
+    if session is not None:
+        df = session.sql(
+            "SELECT EVENT_DATE, USER_ID, REGION, CHANNEL, REVENUE FROM USER_EVENTS_DEMO"
+        ).to_pandas()
+        df["EVENT_DATE"] = pd.to_datetime(df["EVENT_DATE"])
+        return df
     try:
         return pd.read_csv(DATA_PATH, parse_dates=["EVENT_DATE"])
     except (FileNotFoundError, pd.errors.EmptyDataError, pd.errors.ParserError):
         return generate_events()
 
-
-# To load from Snowflake instead, replace load_events() above with this
-# (needs a [connections.snowflake] entry in .streamlit/secrets.toml):
-#
-# def load_events() -> pd.DataFrame:
-#     conn = st.connection("snowflake")
-#     return conn.query(
-#         "SELECT EVENT_DATE, USER_ID, REGION, CHANNEL, REVENUE FROM USER_EVENTS_DEMO",
-#         ttl=0,  # no caching, matching the rest of this app
-#     )
 
 
 def load_filtered(regions: tuple[str, ...], channels: tuple[str, ...]) -> pd.DataFrame:

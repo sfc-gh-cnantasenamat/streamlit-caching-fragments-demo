@@ -10,7 +10,7 @@ Try both versions live: [before](https://st-before-caching.streamlit.app) and [a
 
 ## What's in this repo
 
-Two versions of the same user-activity dashboard, built on a bundled CSV of 200k synthetic events (`data/user_events.csv`, about 5% with no region). No Snowflake credentials are needed. To load from Snowflake instead, each app has a commented-out Snowflake version of `load_events()` you can swap in.
+Two versions of the same user-activity dashboard, built on a bundled CSV of 200k synthetic events (`data/user_events.csv`, about 5% with no region). Locally and on Streamlit Community Cloud, the apps read the CSV, so no Snowflake credentials are needed. Deployed in Streamlit in Snowflake, they query a `USER_EVENTS_DEMO` table through the app's Snowpark session instead.
 
 - `before/` is a typical first draft: no caching, no fragment, no edge-case handling.
 - `after/` is the same file after running the CoCo prompts from the email.
